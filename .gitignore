@@ -1,0 +1,10 @@
+java/target/
+__pycache__/
+*.pyc
+*.log
+# MS MARCO files: non-commercial research licence, re-download per docs/build-log.md (WP2)
+eval/queries.dev.small.tsv
+eval/qrels.dev.small.tsv
+eval/queries_sample*.tsv
+eval/qrels_sample.tsv
+eval/runs/*.trec

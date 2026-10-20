@@ -7,6 +7,10 @@ J=$BDA/repo/java/target/bda-search-1.0.jar
 case "$C" in
   wiki)    IN=/bda/wiki/clean/docs;             REDUCERS=4 ;;
   msmarco) IN=/bda/raw/msmarco/collection.tsv;  REDUCERS=6 ;;
+  # Dry run of the overnight path on the first 100,000 passages (output under /bda/msmarco-sample, deleted after).
+  msmarco-sample)
+    IN=/bda/tmp/msmarco-sample.tsv; REDUCERS=6
+    hdfs dfs -test -e "$IN" || head -100000 /data/raw/msmarco/collection.tsv | hdfs dfs -put -f - "$IN" ;;
   *) echo "unknown corpus $C"; exit 2 ;;
 esac
 O=/bda/$C/index

@@ -11,4 +11,8 @@ export SPARK_HOME=$BDA/opt/spark
 export PIG_HOME=$BDA/opt/pig
 export MAVEN_HOME=$BDA/opt/maven
 export PYSPARK_PYTHON=$BDA/venv/bin/python
-export PATH=$JAVA_HOME/bin:$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$HIVE_HOME/bin:$HBASE_HOME/bin:$SPARK_HOME/bin:$PIG_HOME/bin:$MAVEN_HOME/bin:$PATH
+# Prepend once (this file is sourced by ~/.bashrc and again by every script). $BDA/bin: bda-*.sh, run-*.sh, demo-*.sh.
+case ":$PATH:" in
+  *":$BDA/bin:"*) ;;
+  *) export PATH=$BDA/bin:$JAVA_HOME/bin:$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$HIVE_HOME/bin:$HBASE_HOME/bin:$SPARK_HOME/bin:$PIG_HOME/bin:$MAVEN_HOME/bin:$PATH ;;
+esac

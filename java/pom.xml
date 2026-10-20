@@ -51,6 +51,12 @@
       <groupId>org.wikiclean</groupId>
       <artifactId>wikiclean</artifactId>
       <version>1.2</version>
+      <!-- Only needed by wikiclean's command-line tools; excluding them cuts ~20 MB from the job jar. -->
+      <exclusions>
+        <exclusion><groupId>edu.stanford.nlp</groupId><artifactId>stanford-corenlp</artifactId></exclusion>
+        <exclusion><groupId>org.apache.ant</groupId><artifactId>ant</artifactId></exclusion>
+        <exclusion><groupId>args4j</groupId><artifactId>args4j</artifactId></exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>

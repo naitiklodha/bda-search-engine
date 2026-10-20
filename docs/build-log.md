@@ -32,8 +32,84 @@ One entry per work package: what ran, how long it took, counters and numbers, an
 - **Throughput:** 10,000 MS MARCO passages in 0.451 s = **22,178 docs/s, 799,079 tokens/s** (one thread, JDK 21).
 - `bda.tools.TokenizeQueries` on all 6,980 dev/small queries: **0 zero-term queries**.
 - Shaded jar `bda-search-1.0.jar` (25 MB): it contains the Porter stemmer and no Hadoop classes. `TokenWordCount` over 2,000 passages ran on YARN in 20 s.
+  - The jar is 7.3 MB since WP4: wikiclean's CLI-only dependencies (Stanford CoreNLP, Ant, args4j) are excluded.
+
+## WP4 — Job 0: XmlInputFormat + page parsing (20 Oct 2026)
+- Code: `bda.ingest.{XmlInputFormat, XmlRecordReader, WikiPageMapper, WikiText, WikiPageJob}`, run by `bin/run-job0.sh`.
+- Unit tests (22 in the project now):
+  - `XmlRecordReaderTest`: a 5-page file read with forced splits of 37/61/200/1000 bytes and whole-file gives exactly 5 records, no duplicates.
+  - `WikiPageMapperTest`: entities, link normalisation, field extraction, wikiclean on the current dump format, footer cut, orphan table rows.
+- **S1 ✅ in both split modes**, final run (`bin/run-wiki-pipeline.sh`, steps run one after another, nothing else on the cluster):
+
+| Mode | Mappers | Wall time | PAGES (ground truth 562,214) |
+|---|---|---|---|
+| `split.maxsize = 32 MB` (bzip2 split by Hadoop) | 12 | **234 s** | 562,214 ✅ |
+| `bda.xml.splittable=false` (one split) | 1 | **427 s** | 562,214 ✅ |
+
+  - Splitting the bz2 dump gives a **1.8× speed-up** with identical output.
+- Counters (final run):
+  - PAGES 562,214 · NS0 400,692 · REDIRECTS 124,469 · LINKS 5,950,147.
+  - EMPTY_TEXT 237,801: mostly redirects and other namespaces; only 114 ns-0 articles were empty in the first run.
+  - **CLEAN_FALLBACK 143 = 0.03% of pages** ✅ (< 1%).
+- Output: `/bda/wiki/job0/pages` 367 MB, `/bda/wiki/job0/links` 132 MB. A random sample of 20 articles reads as clean prose; links look like real titles.
+
+## WP5 — Pig filter (20 Oct 2026)
+- `pig/filter_pages.pig` via `bin/run-pig.sh 200`: **43 s**.
+- `by_category`: article **210,106** · stub (< 200 chars) 75,372 · redirect 115,214 · other_ns 161,522. **Sum = 562,214 = PAGES ✅**.
+- `docs` = `titles` = 210,106 ✅; `redirects` = 115,214.
+- **MINLEN = 200 kept:** the length histogram (charts/data via `summary/length_hist`) shows a smooth long tail with no artefact at 200. 89,614 articles are 200–499 chars; 23k+ are > 1,000 chars.
+
+## WP6 — Index build, Jobs 1–3 (20 Oct 2026, simplewiki)
+- Code: `bda.index.{TermDocKey (+ raw comparator), TermPartitioner, TermGroupingComparator (+ raw), PostingsJob, DocStatsJob, LexiconJob}`, `bda.common.Meta`.
+  - `PostingsReducerTest` runs Job 1 in Hadoop's local runner with combiner on/off and 1/3 reducers, and checks the raw comparators against compareTo.
+- `bin/run-index.sh wiki`:
+  - **Job 2** 38 s → N = **210,106**, totalTokens **30,510,204**, avgdl **145.21**.
+  - **Job 1** 107 s (3 maps, 4 reduces).
+  - **Job 3** 26 s → **570,619 terms**.
+- **S2 ✅** (`bin/validate-index.sh`):
+  - Σcf = 30,510,204 = totalTokens.
+  - Lexicon rows = postings lines = 570,619.
+  - A random sample of 4,963 posting lists: docIDs strictly increasing; df = number of entries; cf = Σtf; **0 bad**.
+  - Σdf = 18,317,155 (term, doc) pairs.
+  - Reducer input was 18,317,462: 307 more than the pairs, because the combiner can't merge a (term, doc) pair split across two spill files. The reducer sums them, as designed.
+- **S3 ✅ combiner experiment** (`bin/run-combiner-exp.sh`, same input, 4 reducers; postings **identical** either way):
+
+| Counter | Combiner ON | Combiner OFF | Change |
+|---|---|---|---|
+| Map output records | 30,510,204 | 30,510,204 | — |
+| Map output bytes | 553,930,304 | 553,930,304 | — |
+| Combine input → output records | 30,510,204 → 18,317,462 | 0 | — |
+| Reduce shuffle bytes | **370,956,597** | **614,950,784** | **−39.7%** |
+| Reduce input records | 18,317,462 | 30,510,204 | −40.0% |
+| Spilled records | 54,952,386 | 91,530,612 | −40.0% |
+| CPU time (ms) | 288,030 | 299,170 | −3.7% |
+| Wall time (s) | 107 | 118 | −9% |
+
+## WP7a — Hive statistics + split keys (20 Oct 2026, simplewiki)
+- `bin/run-hive.sh hive/ddl.sql | hive/stats.sql wiki | hive/split_keys.sql`. All 8 queries ran as Tez DAGs (0.8–14.5 s each; about 15 s of embedded HiveServer2 start-up per session).
+- **Headline:**
+  - Vocabulary **570,619**; hapax (cf = 1) **297,382 = 52.12%**.
+  - Tokens 30,510,204; postings 18,317,155.
+  - Average doc length **145.21** tokens (min 2, max 30,043).
+  - Integrity: 210,106 docs = 210,106 distinct docIDs ✅.
+- **Top terms by cf:** he, from, hi(s), also, were, ha(s), she, first, american, us, on(e), peopl(e), which, have, state, born, year, new, other, after.
+- **df magnitudes:** 10⁰: 511,180 · 10¹: 46,554 · 10²: 10,022 · 10³: 2,564 · 10⁴: 298 · 10⁵: 1.
+- **Exports** (`charts/data/`): `wiki_headline`, `wiki_docstats_summary`, `wiki_top50_cf`, `wiki_top50_df`, `wiki_zipf` (6,696 rows), `wiki_doclen_hist`, `wiki_df_magnitude`.
+- **15 HBase split keys** (`hive/split_keys.txt`): 232, anger, border, come, dobzhanski, first, hamam, itali, london, multipl, parliament, rebelli, she, system, utah.
 
 ---
 
 ## Issues & fixes
-See `docs/setup-log.md` § "Issues & fixes" for WP1. Later work packages add theirs here.
+See `docs/setup-log.md` § "Issues & fixes" for WP1.
+
+- **WP4 — wikiclean found no text in the current dump format.** wikiclean 1.2 expects `<text xml:space="preserve">`, but the 2026 dumps write `<text bytes="…" sha1="…" xml:space="preserve">`. On the first run, **285,478 of 562,214 pages fell back** to the regex cleaner.
+  - Fix: give wikiclean a minimal page in the old format (`WikiPageMapper.wikicleanInput`). That brought fallbacks down to 360. A unit test pins both the root cause and the fix.
+- **WP4 — Simple Wikipedia footers.** "Other websites" / "Related pages" / "References" sections aren't recognised by wikiclean, so "Other websites *" stayed in the text. Fix: cut the wikitext at the first footer heading (`dropFooter`). Afterwards 25 of 285k articles still contained the phrase.
+- **WP4 — table markup leaking into the vocabulary.** About 190 "List of minor planets" pages (~120k chars each) open their table inside one template and close it in another. wikiclean never saw a whole table and left ~1,000 bare rows per page (`|-bgcolor=#E9E9E9 | 1 Ceres || … || align=right | 939 km`). That put **class, right, km, bgcolor, align** in the corpus top-10 by cf; bgcolor alone had cf 186k in only 219 docs.
+  - Fix: `preprocess()` removes templates and whole tables with a depth counter, then drops any leftover table-row lines (starting with `|` or `!`).
+  - Result: vocabulary **743,106 → 570,619**, and the top terms are real words. Links are still taken from the *raw* wikitext (plan WP4), so table and footer links count for PageRank.
+- **WP4 — no-op job runs.** I stopped the single-split comparison twice so that both modes would run the same final code. The final numbers above come from one clean sequential run.
+- **WP7a — Hive 4.2.1 beeline:**
+  - Inside the pseudo-terminal, `-f script.sql` only *echoes* the script without running it. `bin/run-hive.sh` therefore passes the statements with `-e`.
+  - `--hivevar` substitution didn't reach the `-e` text (`cannot recognize input near '$' '{' 'C'`), so the runner fills in `${OUTDIR}` and `${C}` itself.
+  - Beeline's terminal control codes (screen switching) hid later console output; `bda-beeline.sh` now strips them.

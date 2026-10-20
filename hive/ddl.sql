@@ -1,0 +1,20 @@
+-- WP7: external tables over the HDFS outputs (plan §7.3). Hive skips _SUCCESS files.
+CREATE DATABASE IF NOT EXISTS bda;
+USE bda;
+CREATE EXTERNAL TABLE IF NOT EXISTS wiki_lexicon  (term STRING, df BIGINT, cf BIGINT)
+  ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' LOCATION '/bda/wiki/index/lexicon';
+CREATE EXTERNAL TABLE IF NOT EXISTS wiki_docstats (docid BIGINT, len INT)
+  ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' LOCATION '/bda/wiki/index/docstats';
+CREATE EXTERNAL TABLE IF NOT EXISTS wiki_titles   (docid BIGINT, title STRING, snippet STRING)
+  ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' LOCATION '/bda/wiki/clean/titles';
+CREATE EXTERNAL TABLE IF NOT EXISTS wiki_norms    (docid BIGINT, norm DOUBLE)
+  ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' LOCATION '/bda/wiki/spark/norms';
+CREATE EXTERNAL TABLE IF NOT EXISTS wiki_pagerank (docid BIGINT, pr DOUBLE)
+  ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' LOCATION '/bda/wiki/spark/pagerank';
+CREATE EXTERNAL TABLE IF NOT EXISTS wiki_docs_full (docid BIGINT, title STRING, snippet STRING, len INT, norm DOUBLE, pr DOUBLE)
+  ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' LOCATION '/bda/wiki/hive/docs_full';
+CREATE EXTERNAL TABLE IF NOT EXISTS msmarco_lexicon  (term STRING, df BIGINT, cf BIGINT)
+  ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' LOCATION '/bda/msmarco/index/lexicon';
+CREATE EXTERNAL TABLE IF NOT EXISTS msmarco_docstats (docid BIGINT, len INT)
+  ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' LOCATION '/bda/msmarco/index/docstats';
+SHOW TABLES;

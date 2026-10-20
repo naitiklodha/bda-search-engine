@@ -97,10 +97,37 @@ One entry per work package: what ran, how long it took, counters and numbers, an
 - **Exports** (`charts/data/`): `wiki_headline`, `wiki_docstats_summary`, `wiki_top50_cf`, `wiki_top50_df`, `wiki_zipf` (6,696 rows), `wiki_doclen_hist`, `wiki_df_magnitude`.
 - **15 HBase split keys** (`hive/split_keys.txt`): 232, anger, border, come, dobzhanski, first, hamam, itali, london, multipl, parliament, rebelli, she, system, utah.
 
+## WP8 — Spark: TF-IDF norms, PageRank, K-means (20 Oct 2026, simplewiki)
+- Run with `bin/run-spark.sh`, Profile B (2 executors × 2 GB × 2 cores, driver 1.5 GB).
+- **TF-IDF norms** (`spark/tfidf_norms.py wiki`): 210,106 documents with a norm (= N), **0 zero norms**; 35 s of Spark work (79 s with start-up).
+- **PageRank** (`spark/pagerank.py`):
+  - Graph: **210,106 nodes**; 5,950,147 raw links resolve (with up to 3 redirect hops) to **3,267,154 distinct edges**; 207,943 nodes have out-links.
+  - 10 iterations, d = 0.85, dangling mass spread evenly (dangling mass 0.0103 in iteration 1, then 0.0027).
+  - **Σpr = 1.000000000 ✅**.
+  - L1 change by iteration: 1.17, 0.419, 0.151, 0.0700, 0.0398, 0.0247, 0.0159, 0.0105, 0.00703, **0.00480** (`eval/pagerank_log.csv`).
+  - **Time per iteration ~10 s, flat** (9.8–11.0 s); 143 s in total.
+  - **Top 10 (S6 ✅ hub pages):** United States, United Kingdom, France, Germany, Europe, England, India, Japan, English language, Canada (`eval/pagerank_top50.tsv`).
+- **K-means** (`spark/kmeans.py 20 20000 20 10`):
+  - Vocabulary 20,000 terms (5 ≤ df ≤ 0.1·N, top by df); (1 + ln tf)·idf, L2-normalised; k = 20, maxIter 20, seed 42.
+  - **209,083 articles clustered**; 1,023 with fewer than 10 vocabulary terms excluded.
+  - Fit 43 s (115 s in total). SSE 200,834.6; silhouette (20k sample) **0.0132**, which is typical for sparse text.
+  - **S6 ✅ readable clusters:** chemistry, TV series, actors, basketball, football, albums/songs, films, frogs, French communes, Swiss municipalities, video games, US counties, medicine, war/empires, politicians, volleyball, geography. Also a general-vocabulary cluster (31,735), a date-heavy biography/events cluster (49,270), and one 2-article outlier cluster. Details in `eval/kmeans_k20.md`.
+
+## WP7b — Hive join `docs_full` (20 Oct 2026)
+- `bin/run-hive.sh hive/docs_full.sql wiki`: titles ⋈ docstats ⟕ norms ⟕ pagerank, as a Tez DAG in 16.3 s.
+- **`docs_full` rows 210,106 = `titles` rows ✅**. All 210,106 have a norm and a PageRank > 0; Σpr = 1.0.
+
 ---
 
 ## Issues & fixes
 See `docs/setup-log.md` § "Issues & fixes" for WP1.
+
+- **WP8 — PageRank slowed down every iteration** (first run: 27, 45, 62, 85, 139, 137, 175, 217, 258, 238 s; 24 min in total). Spark kept re-deriving earlier ranks, and every join reshuffled the graph.
+  - PySpark's `localCheckpoint()` returns `None`; the first version assigned its result and crashed in iteration 3.
+  - Fix: hash-partition `links`, `nodes` and `ranks` the same way (P = 8), so joins don't shuffle the 3.3M-edge graph, and `localCheckpoint()` every iteration.
+  - Result: **~10 s per iteration, flat; 143 s in total (10× faster)**, with identical L1 values and ranking.
+- **WP8 — K-means outlier clusters.** With no minimum, two near-empty articles each took a whole cluster ("NCAA Award of Valor", "Mount Price"; silhouette 0.0093). Articles with fewer than 10 vocabulary terms are now not clustered (1,023 of 210,106), so 19 of the 20 clusters are real topics.
+- **Known limitation:** EasyTimeline chart markup (`<timeline>` blocks: "BarData", "fontsize", "till") isn't removed by wikiclean. It shows up in a few hundred French arrondissement/commune articles. Left as is.
 
 - **WP4 — wikiclean found no text in the current dump format.** wikiclean 1.2 expects `<text xml:space="preserve">`, but the 2026 dumps write `<text bytes="…" sha1="…" xml:space="preserve">`. On the first run, **285,478 of 562,214 pages fell back** to the regex cleaner.
   - Fix: give wikiclean a minimal page in the old format (`WikiPageMapper.wikicleanInput`). That brought fallbacks down to 360. A unit test pins both the root cause and the fix.

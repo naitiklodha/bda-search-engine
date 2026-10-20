@@ -21,6 +21,9 @@ from pyspark.sql.types import LongType, StructField, StructType
 K = int(sys.argv[1]) if len(sys.argv) > 1 else 20
 VOCAB = int(sys.argv[2]) if len(sys.argv) > 2 else 20000
 MAXITER = int(sys.argv[3]) if len(sys.argv) > 3 else 20
+# Articles with fewer vocabulary terms than this are not clustered. In the first run (no minimum), two
+# near-empty outlier articles each took a whole cluster ("NCAA Award of Valor", "Mount Price").
+MIN_TERMS = int(sys.argv[4]) if len(sys.argv) > 4 else 10
 HDFS = "hdfs://localhost:9000/bda/wiki"
 spark = SparkSession.builder.appName(f"bda-kmeans-k{K}").getOrCreate()
 sc = spark.sparkContext
@@ -51,12 +54,16 @@ def explode(line):
     return out
 
 
-docvecs = (sc.textFile(f"{HDFS}/index/postings").flatMap(explode).groupByKey()
+grouped = sc.textFile(f"{HDFS}/index/postings").flatMap(explode).groupByKey().mapValues(list).cache()
+n_all = grouped.count()
+docvecs = (grouped.filter(lambda kv: len(kv[1]) >= MIN_TERMS)
            .map(lambda kv: (kv[0], SparseVector(V, sorted(kv[1])))))
 schema = StructType([StructField("docid", LongType()), StructField("raw", VectorUDT())])
 df = Normalizer(inputCol="raw", outputCol="features", p=2.0).transform(spark.createDataFrame(docvecs, schema)).cache()
 n_docs = df.count()
-print(f"KMEANS vocab={V} docs_with_vector={n_docs} prep_seconds={time.time() - t0:.0f}")
+grouped.unpersist()
+print(f"KMEANS vocab={V} docs_with_any_vocab_term={n_all} clustered(min_terms={MIN_TERMS})={n_docs} "
+      f"excluded={n_all - n_docs} prep_seconds={time.time() - t0:.0f}")
 
 t1 = time.time()
 model = KMeans(k=K, maxIter=MAXITER, seed=42, featuresCol="features").fit(df)
@@ -79,7 +86,8 @@ except Exception as e:  # optional metric
 os.makedirs("eval", exist_ok=True)
 os.makedirs("charts/data", exist_ok=True)
 with open(f"eval/kmeans_k{K}.md", "w", encoding="utf-8") as f:
-    f.write(f"# K-means, k = {K}\n\nSimple English Wikipedia, {n_docs:,} articles; vocabulary {V:,} terms "
+    f.write(f"# K-means, k = {K}\n\nSimple English Wikipedia, {n_docs:,} articles clustered (those with at least "
+            f"{MIN_TERMS} vocabulary terms; {n_all - n_docs:,} shorter ones excluded); vocabulary {V:,} terms "
             f"(5 <= df <= 0.1·N, top by df); weights (1 + ln tf)·idf, L2-normalised; maxIter {MAXITER}, seed 42.\n"
             f"Fit time {fit_secs:.0f} s; within-set sum of squared errors {model.summary.trainingCost:.1f}"
             + (f"; silhouette (20k sample) {sil:.4f}" if sil is not None else "") + ".\n\n")

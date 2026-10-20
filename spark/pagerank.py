@@ -59,8 +59,11 @@ def edge(line):
 
 raw_links = sc.textFile(f"{HDFS}/bda/wiki/job0/links")
 edges = raw_links.map(edge).filter(lambda e: e is not None).distinct()
-links = edges.groupByKey().mapValues(list).cache()
-nodes = sc.parallelize(sorted(title_to_id.values()), 8).map(lambda n: (n, None)).cache()
+# links, nodes and ranks share one hash partitioning (P partitions), so links.join(ranks) and
+# nodes.leftOuterJoin(sums) need no shuffle of the 3.3M-edge graph; only the contributions are shuffled.
+P = 8
+links = edges.groupByKey(P).mapValues(list).cache()
+nodes = sc.parallelize(sorted(title_to_id.values()), P).map(lambda n: (n, None)).partitionBy(P).cache()
 N = nodes.count()
 n_links_raw, n_edges, n_with_out = raw_links.count(), edges.count(), links.count()
 print(f"PAGERANK graph: nodes={N} raw_links={n_links_raw} edges={n_edges} nodes_with_outlinks={n_with_out} "
@@ -72,12 +75,12 @@ for it in range(1, ITERS + 1):
     t0 = time.time()
     contribs = links.join(ranks).flatMap(lambda kv: [(dst, kv[1][1] / len(kv[1][0])) for dst in kv[1][0]])
     dangling = ranks.subtractByKey(links).values().sum()
-    sums = contribs.reduceByKey(add)
+    sums = contribs.reduceByKey(add, P)
     base, dshare = (1 - D) / N, D * dangling / N
-    new = nodes.leftOuterJoin(sums).mapValues(lambda v: base + D * (v[1] or 0.0) + dshare)
-    if it % 3 == 0:
-        new = new.localCheckpoint()
-    new = new.cache()
+    new = nodes.leftOuterJoin(sums, P).mapValues(lambda v: base + D * (v[1] or 0.0) + dshare).cache()
+    # Truncate the lineage every iteration (PySpark marks the RDD in place; it returns None). Without this,
+    # iteration time grew from 27 s to 258 s over 10 iterations as Spark re-derived earlier ranks.
+    new.localCheckpoint()
     l1 = new.join(ranks).map(lambda kv: abs(kv[1][0] - kv[1][1])).sum()   # action: forces the iteration
     ranks.unpersist()
     ranks = new

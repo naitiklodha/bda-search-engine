@@ -52,6 +52,7 @@ Checksums verified:
 | PySpark on YARN with the venv Python (`spark/hello.py`) | ✅ driver and executors both on `~/bda/venv/bin/python`; 39 s |
 | Our shaded jar on YARN (`bda.tools.TokenWordCount`) | ✅ 20 s |
 | Data disk survives `wsl --terminate` and `wsl --shutdown` | ✅ `bda-mount.sh` re-attaches it via the Windows task; no admin needed |
+| **Full cycle (step 13):** `bda-stop.sh all` → `wsl --shutdown` → `bda-start.sh all` → `bda-status.sh` | ✅ disk re-attached automatically; all 8 daemons (incl. HBase) up and master ready in **78 s** from cold; status clean (HDFS 3.76 GB used) |
 
 ## Issues & fixes (the report's "ecosystem drift" material)
 1. **NVIDIA helper flood (Windows).** After Virtual Machine Platform was enabled, the `NvContainerLocalSystem` service crash-looped every 10–20 s. Each restart left behind a stuck SYSTEM `rundll32 …\NvStreamSrv\rxdiag.dll` (about 270 per hour, roughly 1.2 GB after 3 h).

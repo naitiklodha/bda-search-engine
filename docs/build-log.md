@@ -136,10 +136,33 @@ One entry per work package: what ran, how long it took, counters and numbers, an
 - **TF-IDF norms** (Spark, `spark.sql.shuffle.partitions=32`): 223 s; **8,841,803** passages with a norm (= N − the 20 empty ones); 0 zero norms.
 - Data disk afterwards: `/data` 264 GB free of 295 GB.
 
+## WP9 — HBase serving tables + loader (22 Oct 2026, ~00:37–00:44 IST)
+- Code: `bda.hbase.HBaseLoadJob`, map-only through `TableOutputFormat`. Every Put uses `Durability.SKIP_WAL`, since the data can always be reloaded from HDFS. Speculative maps are off.
+- Scripts: `hbase/create_tables.sh`, `bin/run-hbase-load.sh`, `bin/verify-hbase.sh`.
+- **Tables:**
+  - `postings`: rowkey `term#%010d`, family `p`, 1 version, row Bloom filter, FAST_DIFF block encoding. **Pre-split into 16 regions at the 15 Hive split keys** (232, anger, border, come, dobzhanski, first, hamam, itali, london, multipl, parliament, rebelli, she, system, utah).
+  - `docs`: rowkey `%010d`, family `d`.
+  - `terms`: rowkey term, family `t`, row Bloom filter.
+
+| Table | Source | Rows | Expected | Load time | Rows/s |
+|---|---|---|---|---|---|
+| terms | `/bda/wiki/index/lexicon` | 570,619 | 570,619 ✅ | 50 s (4 maps) | 11,435 |
+| docs | `/bda/wiki/hive/docs_full` | 210,106 | 210,106 ✅ | 27 s (3 maps) | 7,879 |
+| postings | `/bda/wiki/index/postings` | **18,317,155** | Σdf = 18,317,155 ✅ | **86 s** (4 maps) | **212,814** |
+
+  - Row counts come from `hbase-mapreduce rowcounter` on YARN; 0 bad lines in every load.
+  - The small tables' rates are dominated by job start-up. 86 s for postings is far below the 30-minute threshold for the HFile bulk-load fallback.
+- **Prefix scan** `scan 'postings', {ROWPREFIXFILTER => 'photosynthesi#', LIMIT => 5}` returns docIDs 0000000101, 0000000108, 0000000218, 0000000219, 0000000425: **ascending ✅**.
+- **`get 'docs', '0000000101'`:** Biology, with title, snippet, len, norm and pr all present ✅.
+- **Region balance ✅:** all 16 `postings` regions hold **14–15 MB** after flush (FAST_DIFF), with 2.25–2.33 M write requests each. The Hive cumulative-df split keys spread the load evenly.
+- Flush and major compaction were requested after loading. HBase was stopped afterwards; it runs only for WP10 and the demo.
+
 ---
 
 ## Issues & fixes
 See `docs/setup-log.md` § "Issues & fixes" for WP1.
+
+- **WP9 — JDK 21 module warning in the HBase client.** Each load job's client logged `InaccessibleObjectException: Unable to make static boolean java.nio.Bits.unaligned() accessible: module java.base does not "opens java.nio"`. The loads all succeeded: HBase falls back to its non-Unsafe code path. For the QueryServer (WP10), add `--add-opens java.base/java.nio=ALL-UNNAMED` (the plan's documented fix for module errors).
 
 - **WP11 — overnight launcher.** The first `bda-run.sh` started the job with `setsid … &` and exited immediately. WSL ended the calling session before `setsid` took effect, so the job died before even creating its log (21 Oct, both of the user's attempts). The fix: the launcher now waits until the child's session ID differs from its own, then confirms it's alive. A clean run followed.
 

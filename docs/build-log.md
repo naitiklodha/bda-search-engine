@@ -117,10 +117,31 @@ One entry per work package: what ran, how long it took, counters and numbers, an
 - `bin/run-hive.sh hive/docs_full.sql wiki`: titles ⋈ docstats ⟕ norms ⟕ pagerank, as a Tez DAG in 16.3 s.
 - **`docs_full` rows 210,106 = `titles` rows ✅**. All 210,106 have a norm and a PageRank > 0; Σpr = 1.0.
 
+## WP11 step 1 — MS MARCO index + TF-IDF norms (21 Oct 2026, 23:23–23:44 IST, unattended)
+- Run with `bin/bda-run.sh msmarco-overnight bash bin/run-msmarco-overnight.sh`; log `~/bda/logs/msmarco-overnight.log`, ending `OVERNIGHT_DONE`. **Wall time about 21 min** in total. Profile B; HBase off.
+- **Job 2** 200 s, 24 maps:
+  - N = **8,841,823** passages (= collection.tsv lines ✅); **340,895,003 tokens**; avgdl **38.55**.
+  - 20 passages are empty after tokenising (EMPTY_DOCS = 20).
+- **Job 1** 692 s, 23 maps, 6 reducers (7 reduce attempts launched):
+  - Map output **340,895,003 records / 6.15 GB**; shuffle **5.15 GB**; reduce input **257,026,270**.
+  - Combine counters 588,608,631 in → 504,739,898 out, counted across spill/merge passes.
+  - Spilled 771,078,964 records; CPU 2,349.7 s; GC 10.7 s.
+  - The combiner helps far less here than on Wikipedia (map output materialised 5.15 GB vs 6.15 GB raw). MS MARCO passages are short (38.6 tokens), so a word rarely repeats inside one passage.
+- **Job 3** 58 s → **1,370,456 terms**.
+- **S2 ✅:**
+  - Σcf = 340,895,003 = totalTokens.
+  - Lexicon rows = postings lines = 1,370,456.
+  - A random sample of 5,069 posting lists has 0 bad.
+  - Σdf = **257,026,270** (term, doc) pairs, exactly the reduce input, so the combiner merged every repeat this time.
+- **TF-IDF norms** (Spark, `spark.sql.shuffle.partitions=32`): 223 s; **8,841,803** passages with a norm (= N − the 20 empty ones); 0 zero norms.
+- Data disk afterwards: `/data` 264 GB free of 295 GB.
+
 ---
 
 ## Issues & fixes
 See `docs/setup-log.md` § "Issues & fixes" for WP1.
+
+- **WP11 — overnight launcher.** The first `bda-run.sh` started the job with `setsid … &` and exited immediately. WSL ended the calling session before `setsid` took effect, so the job died before even creating its log (21 Oct, both of the user's attempts). The fix: the launcher now waits until the child's session ID differs from its own, then confirms it's alive. A clean run followed.
 
 - **WP8 — PageRank slowed down every iteration** (first run: 27, 45, 62, 85, 139, 137, 175, 217, 258, 238 s; 24 min in total). Spark kept re-deriving earlier ranks, and every join reshuffled the graph.
   - PySpark's `localCheckpoint()` returns `None`; the first version assigned its result and crashed in iteration 3.

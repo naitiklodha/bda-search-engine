@@ -3,10 +3,10 @@
 # then its TF-IDF norms. Starts the core services first (idempotent) and makes sure HBase is off.
 # Start it detached, so it survives closing the terminal:
 #   wsl -d Ubuntu -- bash -l /home/mit/bda/bin/bda-run.sh msmarco-overnight bash /home/mit/bda/bin/run-msmarco-overnight.sh
-# Usage: run-msmarco-overnight.sh [msmarco|msmarco-sample]      log: ~/bda/logs/msmarco-overnight.log
+# Usage: run-msmarco-overnight.sh [msmarco|msmarco-sample]
+# Output goes to stdout; started via bda-run.sh it lands in ~/bda/logs/msmarco-overnight.log.
 source ~/bda/env.sh
 C=${1:-msmarco}
-LOG=$BDA/logs/$C-overnight.log
 {
   echo "######## start $(date)"
   bash "$BDA/bin/bda-start.sh" core | tail -8
@@ -17,4 +17,4 @@ LOG=$BDA/logs/$C-overnight.log
   echo "######## disk + status"; bash "$BDA/bin/bda-status.sh" | sed -n '/--- disks ---/,$p'
   echo "######## end $(date)"
   echo OVERNIGHT_DONE
-} 2>&1 | tee "$LOG"
+} 2>&1

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Stop the BDA stack. Usage: bda-stop.sh [hbase|all]   (default: all)
-#   hbase = HBase only;  all = HBase (if running) + JobHistory + YARN + HDFS, in reverse start order.
+#   hbase = QueryServer + HBase;  all = QueryServer + HBase (if running) + JobHistory + YARN + HDFS, in reverse start order.
 source ~/bda/env.sh
 MODE=${1:-all}
 case "$MODE" in hbase|all) ;; *) echo "usage: bda-stop.sh [hbase|all]"; exit 2 ;; esac
@@ -10,6 +10,7 @@ stop() {  # stop <jps name> <command...>
   local name=$1; shift
   if running "$name"; then "$@" >/dev/null 2>&1; echo "  stopped $name"; fi
 }
+if pgrep -f bda.serve.QueryServer >/dev/null; then pkill -f bda.serve.QueryServer; echo "  stopped QueryServer (search page)"; fi
 echo "HBase"
 stop HRegionServer hbase-daemon.sh stop regionserver
 stop HMaster       hbase-daemon.sh stop master

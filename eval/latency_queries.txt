@@ -1,0 +1,50 @@
+rare	photosynthesis
+rare	chlorophyll
+rare	mitochondria
+rare	archipelago
+rare	saxophone
+rare	kangaroo
+rare	hieroglyphics
+rare	tsunami
+rare	penicillin
+rare	constellation
+rare	volcano
+rare	telescope
+rare	algorithm
+rare	renaissance
+rare	cathedral
+common	city
+common	music
+common	football
+common	river
+common	war
+common	film
+common	school
+common	king
+common	game
+common	language
+common	people
+common	world
+common	year
+common	state
+common	american
+multi	solar system planets
+multi	world war ii battles
+multi	football club england
+multi	machine learning
+multi	ancient egypt pyramids
+multi	french revolution
+multi	climate change effects
+multi	united states president
+multi	olympic games history
+multi	rock music band
+multi	human heart blood
+multi	computer programming language
+multi	roman empire emperor
+multi	chemical element metal
+multi	tropical rain forest animals
+multi	japanese video game
+multi	capital city of germany
+multi	nobel prize physics
+multi	mountain range in asia
+multi	how do vaccines work

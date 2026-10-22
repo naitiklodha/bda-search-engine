@@ -7,4 +7,4 @@ eval/queries.dev.small.tsv
 eval/qrels.dev.small.tsv
 eval/queries_sample*.tsv
 eval/qrels_sample.tsv
-eval/runs/*.trec
+eval/runs*/*.trec

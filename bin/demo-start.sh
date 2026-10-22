@@ -7,8 +7,15 @@ bash "$BDA/bin/bda-start.sh" all || exit 1
 J=$BDA/repo/java/target/bda-search-1.0.jar
 if unzip -l "$J" 2>/dev/null | grep -q 'bda/serve/QueryServer.class'; then          # search page (WP10)
   if ! curl -s -o /dev/null http://localhost:8090/; then
-    bash "$BDA/bin/bda-run.sh" queryserver java -cp "$J:$(hbase classpath)" bda.serve.QueryServer --port 8090
+    mkdir -p "$BDA/tmp" && hdfs dfs -get -f /bda/wiki/index/meta/meta.tsv "$BDA/tmp/wiki-meta.tsv"
+    # --add-opens: JDK 21 + HBase client (WP9 build-log: java.nio.Bits.unaligned not accessible otherwise).
+    # Classpath = the minimal HBase client set (`hbase mapredcp`, as the WP9 loaders used) + Hadoop's own jars.
+    # The full `hbase classpath` crashes on JDK 21: a lib jar registers an InetAddressResolverProvider
+    # (shaded dnsjava) whose class isn't on the path -> ServiceConfigurationError.
+    bash "$BDA/bin/bda-run.sh" queryserver java -Xmx1g --add-opens java.base/java.nio=ALL-UNNAMED \
+      -cp "$J:$(hbase mapredcp 2>/dev/null):$HBASE_HOME/conf:$(hadoop classpath)" bda.serve.QueryServer --port 8090
     for i in $(seq 60); do curl -s -o /dev/null http://localhost:8090/ && break; sleep 2; done
+    grep -m1 'QueryServer ready' "$BDA/logs/queryserver.log" || { echo "QueryServer did not come up:"; tail -15 "$BDA/logs/queryserver.log"; }
   fi
   PAGES="http://localhost:8090/"
 else

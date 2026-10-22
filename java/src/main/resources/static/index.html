@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BDA Search</title>
+<style>
+  :root { --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6b6a65; --line:#e3e0d8; --accent:#2f5d8a; --chip:#eef2f6; --hit:#ffffff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16171a; --fg:#e8e6e1; --muted:#9a988f; --line:#2c2e33; --accent:#8fb6dd; --chip:#23272e; --hit:#1d1f23; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 20px; font-size: 14px; }
+  form { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  input[type=text] { flex: 1 1 320px; padding: 10px 12px; font-size: 16px; border:1px solid var(--line); border-radius:8px; background:var(--hit); color:var(--fg); }
+  select, button { padding: 10px 12px; font-size: 15px; border:1px solid var(--line); border-radius:8px; background:var(--hit); color:var(--fg); }
+  button { background: var(--accent); color: #fff; border-color: var(--accent); cursor:pointer; }
+  label { font-size: 14px; color: var(--muted); display:flex; gap:6px; align-items:center; }
+  .chips { margin: 12px 0 4px; display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { background: var(--chip); border:1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 13px; cursor:pointer; color: var(--fg); }
+  #status { color: var(--muted); font-size: 13px; margin: 14px 0 8px; min-height: 1.2em; font-variant-numeric: tabular-nums; }
+  #msg { color: #b45309; font-size: 14px; margin-bottom: 8px; }
+  ol { list-style: none; padding: 0; margin: 0; }
+  li { background: var(--hit); border:1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  li a { color: var(--accent); font-weight: 600; text-decoration: none; }
+  li a:hover { text-decoration: underline; }
+  .meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .snip { margin-top: 4px; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>BDA Search: Simple English Wikipedia</h1>
+  <p class="sub">210,106 articles · index built with MapReduce, served from HBase · Boolean, TF-IDF and BM25 ranking, optional PageRank boost</p>
+  <form id="f">
+    <input id="q" type="text" placeholder="Search…" autofocus>
+    <select id="model">
+      <option value="bm25">BM25</option>
+      <option value="tfidf">TF-IDF</option>
+      <option value="boolean">Boolean (AND)</option>
+    </select>
+    <label><input id="pr" type="checkbox"> PageRank boost (BM25)</label>
+    <button type="submit">Search</button>
+  </form>
+  <div class="chips" id="chips"></div>
+  <div id="status"></div>
+  <div id="msg"></div>
+  <ol id="results"></ol>
+</main>
+<script>
+const examples = ["photosynthesis", "solar system planets", "world war ii battles", "football club england", "machine learning"];
+const $ = (id) => document.getElementById(id);
+for (const e of examples) {
+  const c = document.createElement("span");
+  c.className = "chip"; c.textContent = e;
+  c.onclick = () => { $("q").value = e; run(); };
+  $("chips").appendChild(c);
+}
+$("f").onsubmit = (ev) => { ev.preventDefault(); run(); };
+$("model").onchange = () => { if ($("q").value.trim()) run(); };
+$("pr").onchange = () => { if ($("q").value.trim()) run(); };
+function esc(s) { return (s || "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+async function run() {
+  const q = $("q").value, model = $("model").value, pr = $("pr").checked && model === "bm25" ? 1 : 0;
+  $("status").textContent = "Searching…";
+  const t0 = performance.now();
+  let r;
+  try {
+    r = await (await fetch(`/search?q=${encodeURIComponent(q)}&model=${model}&pr=${pr}&k=10`)).json();
+  } catch (e) { $("status").textContent = "Search server not reachable."; return; }
+  const ms = (x) => x.toFixed(1);
+  const t = r.timings || {};
+  $("status").textContent = r.error ? "Error: " + r.error
+    : `${r.total.toLocaleString()} results · ${ms(t.total)} ms (scan ${ms(t.scan)} · score ${ms(t.score)} · fetch ${ms(t.fetch)})`
+      + (r.terms && r.terms.length ? ` · terms: ${r.terms.join(", ")}` : "") + ` · page ${Math.round(performance.now() - t0)} ms`;
+  $("msg").textContent = (r.message || "") + (r.unknown && r.unknown.length && !r.message ? `Not in any article: ${r.unknown.join(", ")}.` : "");
+  $("results").innerHTML = (r.results || []).map((h) => `
+    <li><a href="${esc(h.url)}" target="_blank" rel="noopener">${esc(h.title)}</a>
+      <div class="meta">#${h.rank} · score ${h.score} · doc ${h.docid}</div>
+      <div class="snip">${esc(h.snippet)}…</div></li>`).join("");
+}
+</script>
+</body>
+</html>

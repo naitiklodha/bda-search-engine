@@ -1,17 +1,17 @@
 # Live demo guide: showing the search engine working in real time
 
-*Use this to show your professor the system live. Parts marked ⏳ arrive with WP9–WP11 (Wednesday/Thursday). Everything else works today.*
+*Use this to show your professor the system live. Every part below works and was rehearsed on 22 Oct: cold start to first search took 103 s.*
 
 ## What "real time" means in this demo
 
 Some jobs take an hour or more: indexing 8.8 million MS MARCO passages, and the 1,000-question evaluation. Those are **run beforehand**. In the demo you show their saved results and their counters in JobHistory. Say this upfront: it's how real clusters are demonstrated too.
 
 What runs **live, in front of the professor**:
-1. **Cold start:** the whole cluster comes up from nothing with one command (about 1.5–2 minutes).
+1. **Cold start:** the whole cluster comes up from nothing with one command (rehearsal: ready in 94 s).
 2. **A real MapReduce job:** it tokenises and counts 2,000 passages. You can watch it appear and finish in the YARN web page (about 20 s).
 3. **A live Hive SQL query** running as a Tez job (about 20 s).
-4. **A live HBase lookup** of a word's posting list ⏳ (WP9).
-5. **The search page:** every search is answered live from HBase, with three ranking models and a PageRank switch ⏳ (WP10).
+4. **A live HBase lookup** of a word's posting list.
+5. **The search page:** every search is answered live from HBase (typically 40–70 ms), with three ranking models and a PageRank switch.
 
 ---
 
@@ -30,7 +30,7 @@ What runs **live, in front of the professor**:
      ```powershell
      Stop-Service MySQL80, postgresql-x64-18 -ErrorAction SilentlyContinue
      ```
-2. **Start everything with one command** (normal PowerShell). This checks the data disk, starts HDFS, YARN, JobHistory and HBase (plus the search server once it exists), then opens the browser tabs:
+2. **Start everything with one command** (normal PowerShell). This checks the data disk, starts HDFS, YARN, JobHistory, HBase and the search server, then opens the browser tabs:
    ```powershell
    wsl -d Ubuntu -- bash -l /home/mit/bda/bin/demo-start.sh
    ```
@@ -43,14 +43,15 @@ What runs **live, in front of the professor**:
    ```bash
    demo-live.sh status
    demo-live.sh hive photosynthesis
+   demo-live.sh search "solar energy"
    ```
-   Once WP10 exists, also do one search on the search page.
+   Also do one search on the search page.
 
 **Browser tabs that `demo-start.sh` opens:**
 
 | Tab | Address | Shows |
 |---|---|---|
-| Search page ⏳ | http://localhost:8090 | The search engine itself |
+| Search page | http://localhost:8090 | The search engine itself |
 | HDFS | http://localhost:9870 | Files in the distributed filesystem (*Utilities → Browse*) |
 | YARN | http://localhost:8088 | Jobs running *right now* |
 | JobHistory | http://localhost:19888 | Finished jobs and their counters (combiner numbers) |
@@ -64,24 +65,24 @@ What runs **live, in front of the professor**:
 | 0:40 | **HDFS** tab → `/bda/raw/simplewiki` | Click into the folder | "The 342 MB dump stays compressed in HDFS. bzip2 can be split, so 12 mappers read it in parallel: 234 s instead of 427 s, with identical output." |
 | 1:20 | **Terminal** | `demo-live.sh mr` → switch to the **YARN** tab while it runs | "This is a live MapReduce job on the cluster: it tokenises 2,000 passages and counts the words. You can see it running." |
 | 2:00 | Terminal output, then **JobHistory** | Open the full index job (`bda-job1-postings`) and its *Counters* | "The combiner pre-totals on each worker. On the full Wikipedia index it cut the shuffle by 39.7% (371 MB vs 615 MB) with identical results." |
-| 2:40 | **Search page** ⏳ | Search `photosynthesis` with BM25, then TF-IDF, then Boolean | "Three ranking models over the same index. The status line shows the time spent on each step." |
-| 3:30 | Search page ⏳ | A multi-word query, then tick **PageRank** | "Adding link authority changes the order." (examples in `eval/pagerank_examples.md`) |
-| 4:15 | Terminal | `demo-live.sh hbase photosynthesis` ⏳ | "Rowkey = term#docID, so one word's postings are one fast prefix scan." |
+| 2:40 | **Search page** | Search `photosynthesis` with BM25, then TF-IDF, then Boolean | "Three ranking models over the same index. The status line shows the time spent on each step." |
+| 3:30 | Search page | Search `river` with BM25, then tick **PageRank** | "Plain BM25 returns lists of rivers; adding link authority brings up *River*, *Water*, *Mississippi River*." (more in `eval/pagerank_examples.md`) |
+| 4:15 | Terminal | `demo-live.sh hbase photosynthesis` | "Rowkey = term#docID, so one word's postings are one fast prefix scan." |
 | 4:45 | Terminal | `demo-live.sh hive photosynthesis` | "A live SQL query on Tez: how many articles use this word." Then show the Zipf chart: "52% of words occur only once." |
-| 5:20 | `eval/results.md` + MRR chart ⏳ | — | "On 1,000 real MS MARCO questions: BM25 beats TF-IDF, which beats Boolean, close to the published baseline." |
+| 5:20 | `eval/results.md` + `charts/C5_eval_models.png` | — | "On 1,000 real MS MARCO questions: BM25 MRR@10 0.198 vs TF-IDF 0.127 vs Boolean 0.058, all differences significant. The published Lucene baseline is 0.187, so we match it within sampling error." |
 | 6:00 | Terminal | `demo-live.sh pagerank`, then `demo-live.sh clusters` | "PageRank over 3.27 million links: United States, United Kingdom, France on top. K-means found 20 topics from vocabulary alone: chemistry, football, video games…" |
 | 6:45 | — | — | Questions |
 
 **Other quick live commands:**
 - `demo-live.sh term running` → shows `run` (how the tokeniser stems words).
-- `demo-live.sh search "solar energy"` ⏳ → search results in the terminal.
+- `demo-live.sh search "solar energy"` → all three models' top 5 in the terminal, with timings.
 - `demo-live.sh status` → everything that's running, plus disk and memory.
 
 ## Part D: If something goes wrong
 
 | Problem | Do this |
 |---|---|
-| Search page won't load ⏳ | Use the terminal instead: `demo-live.sh search "query"` |
+| Search page won't load | Use the terminal instead: `demo-live.sh search "query"`. To restart only the server: `bda-stop.sh hbase`, then re-run `demo-start.sh` |
 | HBase is down | Show the HBase screenshots in the report appendix, then go straight to the evaluation (it doesn't use HBase) |
 | A Hive query is slow | Show the saved outputs in `charts/data/` and the charts |
 | Everything is stuck | `bda-stop.sh all`, then re-run `demo-start.sh` (about 2 minutes). Keep talking through the architecture meanwhile. |

@@ -1,0 +1,8 @@
+counter	combiner_on	combiner_off
+map_output_records	30510204	30510204
+reduce_input_records	18317462	30510204
+spilled_records	54952386	91530612
+map_output_bytes	553930304	553930304
+reduce_shuffle_bytes	370956597	614950784
+wall_seconds	107	118
+cpu_ms	288030	299170

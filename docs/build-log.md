@@ -157,10 +157,87 @@ One entry per work package: what ran, how long it took, counters and numbers, an
 - **Region balance ✅:** all 16 `postings` regions hold **14–15 MB** after flush (FAST_DIFF), with 2.25–2.33 M write requests each. The Hive cumulative-df split keys spread the load evenly.
 - Flush and major compaction were requested after loading. HBase was stopped afterwards; it runs only for WP10 and the demo.
 
+## WP11 step 2 — MS MARCO evaluation (22 Oct 2026, ~08:30–10:05 IST)
+- **Prep** (`bin/prep-eval.sh`):
+  - 1,000 of the 6,980 dev/small queries, drawn with seed 42 → `eval/sample_qids.txt` (committed); their qrels → `eval/qrels_sample.tsv`.
+  - Queries tokenised by the index's own tokeniser (`bda.tools.TokenizeQueries`, `v1-lucene33-porter`) → `queries_sample.tok.tsv`, also uploaded to `/bda/msmarco/eval/`.
+  - The query and qrels files stay out of git (MS MARCO licence; `.gitignore`).
+- **Scoring** (`spark/eval_msmarco.py`, exhaustive, no early termination):
+  - It first runs a toy self-test of its formulas.
+  - Then: postings ⋈ docstats ⋈ norms → per-pair weights → join with the broadcast query terms → **one** `repartition` by qid → sum per (qid, docid) → four `row_number` windows (BM25 0.9/0.4, BM25 1.2/0.75, TF-IDF, Boolean AND in docID order) in a single pass.
+  - It keeps the top 100 per query and model and writes them to `eval/runs/*.trec`, plus `boolean_counts.tsv`.
+  - A dry run on the 2,000-passage sample index came first (`eval/runs-sample/`).
+- **Runtime: 5,689 s (~95 min)** for 0.97 billion query–passage pairs (Profile B; 2 executors × 2 GB, 128 shuffle partitions).
+- **Metrics** (`eval/metrics.py`, pytrec_eval; queries with no results count as 0) → `eval/results.md`, `eval/per_query_rr.csv`, `charts/data/eval_metrics.tsv`:
+
+| Model | MRR@10 | ± s.e. | P@10 | R@100 | Zero-result queries |
+|---|---|---|---|---|---|
+| BM25 k1 = 0.9, b = 0.4 | **0.1978** | 0.0104 | 0.0411 | 0.6452 | 0% |
+| BM25 k1 = 1.2, b = 0.75 | 0.1928 | 0.0101 | 0.0410 | 0.6507 | 0% |
+| TF-IDF | 0.1270 | 0.0084 | 0.0292 | 0.5733 | 0% |
+| Boolean AND | 0.0575 | 0.0063 | 0.0110 | 0.1513 | 40.5% |
+
+- **Paired t-tests:** BM25 vs TF-IDF p = 1.22e-18; TF-IDF vs Boolean p = 1.63e-14; the two BM25 settings p = 0.198 (not significant). **S5 ✅**
+- **Per query:** BM25 > TF-IDF on 265 queries, TF-IDF > BM25 on 80, tied on 655 (571 of those because both score 0).
+  - A relevant passage is in the top 10 for 401 queries (BM25), 286 (TF-IDF) and 109 (Boolean).
+  - BM25 puts it at rank 1 for 119.
+- **Hive MS MARCO statistics:**
+  - `stats.sql msmarco` took 82 s; `doclen_fine.sql` (5-token bins for C2) took 32 s.
+  - Vocabulary 1,370,456, of which 663,034 are hapax (48.38%).
+  - Passage length averages 38.55 tokens (maximum 235); the most common bin is 30–34 tokens.
+  - Top terms by df: you (1,924,524), from, can.
+- **Zipf slope** (least squares in log–log, ranks ≤ 10,000): wiki −0.851, MS MARCO −0.859.
+
+## WP10 — Query server and search page (22 Oct 2026)
+- **Code:**
+  - `bda.common.Scorer`: BM25, TF-IDF and the PageRank boost w·ln(pr·N), with defaults k1 0.9, b 0.4, w 0.5. `ScorerTest` pins a hand-computed toy example; **25 tests pass** in total.
+  - `bda.serve.SearchService`, `QueryServer` (JDK HttpServer on :8090; `/` serves the page, `/search` returns JSON), `QueryCli`.
+  - `src/main/resources/static/index.html`: plain HTML/JS with a model choice, a PageRank switch, example queries, and a status line with per-stage times.
+- **Start-up:**
+  - The server loads the index meta (it refuses to start if the tokeniser version differs), 570,619 df values from `terms`, and len, norm and pr for 210,106 docs from `docs`.
+  - Loading takes **6.2 s** warm and **16.5 s** right after a cold start.
+- **Per query:**
+  1. Tokenise.
+  2. One prefix scan per term on `postings` (`term#`, caching 5,000).
+  3. Accumulate scores; keep a top-k heap, with ties broken by docID.
+  4. Batch-Get titles and snippets from `docs`.
+  - Each stage is timed and returned with the results.
+- **Latency (S4 ✅;** `eval/latency.py`, 50 queries × 3 models after one warm-up; server-side ms; `charts/data/latency.tsv`):
+
+| Model | p50 | p95 | Max | Rare p50/p95 | Common p50/p95 | Multi-term p50/p95 |
+|---|---|---|---|---|---|---|
+| BM25 | 71.3 | 172.9 | 230.8 | 29 / 37 | 89 / 151 | 101 / 192 |
+| TF-IDF | 50.2 | 123.3 | 203.3 | 9 / 11 | 82 / 118 | 63 / 137 |
+| Boolean | 39.3 | 142.1 | 253.6 | 8 / 9 | 41 / 129 | 72 / 145 |
+
+- **Edge cases ✅:**
+  - An empty query, a stopword-only query ("the of") and an unknown word each get an explanatory message.
+  - A Boolean query with an unknown word says that no page can contain every word.
+  - "Café" is normalised to `cafe`.
+- **PageRank boost** (`eval/pagerank_examples.py` → `eval/pagerank_examples.md`): it changed the top 5 for **20 of 20** candidate queries.
+  - "river": from lists of rivers to *River*, *Water* and *Mississippi River*.
+  - "president": *United States* and *President of the United States* move to the top.
+- **Scripts:** `bin/demo-start.sh` copies the meta file locally, starts the server with `bda-run.sh` and waits for `QueryServer ready`. `bin/bda-stop.sh` stops it first. `bin/demo-live.sh search "<q>"` prints all three models' top 5 in the terminal.
+
+## WP12 — Charts, demo rehearsal, report (22 Oct 2026)
+- **Charts:** `charts/make_charts.py` builds **C1–C11** from `charts/data/*.tsv` and the eval outputs.
+  - C1 Zipf · C2 lengths · C3 combiner · C4 Job 0 split modes · C5 models · C6 per-query RR · C7 PageRank convergence · C8 PageRank top 15 · C9 K-means sizes · C10 latency · C11 df magnitudes.
+  - The categorical colours (#2a78d6, #eb6834, #1baf7a) pass the colour-vision-deficiency validator. Every chart has one y-axis and direct labels.
+- **Demo rehearsal (S7 ✅)** from `wsl --shutdown`:
+  - `demo-start.sh` reported **ready in 94 s** (HDFS, YARN, JobHistory, HBase, QueryServer).
+  - The first query ("photosynthesis", BM25: 157 results in 153 ms; top hit *Photosynthesis*) was answered **103 s** after the start.
+- **Report:** `report/report.md` is complete apart from the course's AI-disclosure wording and the Appendix C screenshots.
+
 ---
 
 ## Issues & fixes
 See `docs/setup-log.md` § "Issues & fixes" for WP1.
+
+- **WP10 — QueryServer start-up failures:**
+  - **"No FileSystem for scheme: hdfs"** when reading the index meta. The HBase client classpath has no HDFS FileSystem registered. Fix: `demo-start.sh` copies `meta.tsv` to `~/bda/tmp/wiki-meta.tsv` (`hdfs dfs -get -f`), and the server reads that local copy.
+  - **`ServiceConfigurationError: InetAddressResolverProvider`** with the full `hbase classpath`. JDK 21 found the DNS-resolver provider in a shaded dnsjava jar and couldn't load it. Fix: build the classpath from `hbase mapredcp` + `$HBASE_HOME/conf` + `hadoop classpath`.
+  - Both the server and `QueryCli` are started with `--add-opens java.base/java.nio=ALL-UNNAMED` (see the WP9 note below).
+- **WP12 — C2 for MS MARCO was unreadable** with the 50-token bins from `stats.sql`: almost every passage fell into one bar. Fix: `hive/doclen_fine.sql` uses 5-token bins below 300 tokens.
 
 - **WP9 — JDK 21 module warning in the HBase client.** Each load job's client logged `InaccessibleObjectException: Unable to make static boolean java.nio.Bits.unaligned() accessible: module java.base does not "opens java.nio"`. The loads all succeeded: HBase falls back to its non-Unsafe code path. For the QueryServer (WP10), add `--add-opens java.base/java.nio=ALL-UNNAMED` (the plan's documented fix for module errors).
 

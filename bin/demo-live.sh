@@ -52,9 +52,17 @@ case "${1:-}" in
   search)
     Q=${2:-photosynthesis}
     if curl -s -o /dev/null http://localhost:8090/; then
-      for m in boolean tfidf bm25; do
-        echo ">> model=$m"; curl -s "http://localhost:8090/search?q=$(printf %s "$Q" | jq -sRr @uri 2>/dev/null || echo "$Q")&model=$m&k=5" | head -c 600; echo
-      done
+      "$BDA/venv/bin/python" - "$Q" <<'EOF'
+import json, sys, urllib.parse, urllib.request
+q = sys.argv[1]
+for m in ["boolean", "tfidf", "bm25"]:
+    r = json.load(urllib.request.urlopen(f"http://localhost:8090/search?q={urllib.parse.quote(q)}&model={m}&k=5"))
+    t = r["timings"]
+    print(f">> {m:8s} {r['total']:>7,} results in {t['total']:.0f} ms (scan {t['scan']:.0f} · score {t['score']:.0f} · fetch {t['fetch']:.0f})"
+          + (f"  [{r['message']}]" if r["message"] else ""))
+    for h in r["results"]:
+        print(f"     {h['rank']}. {h['title']}  ({h['score']})")
+EOF
     else
       echo "(search server arrives with WP10)"
     fi ;;

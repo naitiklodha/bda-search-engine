@@ -78,6 +78,63 @@ What runs **live, in front of the professor**:
 - `demo-live.sh search "solar energy"` → all three models' top 5 in the terminal, with timings.
 - `demo-live.sh status` → everything that's running, plus disk and memory.
 
+## Part C2: Explaining as you go
+
+**The habit:** most steps have a short wait. *Talk during the wait* about what the system is doing. When the output appears, *point at one number*. The numbers below come from the full rehearsal on 22 Oct, so you'll see the same ones.
+
+**`demo-start.sh` (about 90 s)**
+- *While it runs*, walk through the architecture (report §4):
+  - "HDFS stores the files across the cluster."
+  - "YARN hands out CPU and memory to jobs."
+  - "HBase holds the index for fast lookups."
+  - "A small Java server answers the searches."
+- *Then point at* `demo ready in 91 s`: "The target was under 5 minutes."
+
+**`demo-live.sh mr` (about 30 s)**
+- *While it runs*, switch to the YARN tab to show the job:
+  - "Map: each worker splits its passages into words and writes (word, 1) for every word."
+  - "Combiner: adds those up on the same machine, before anything is sent."
+  - "Shuffle: brings each word's counts together in one place."
+  - "Reduce: adds up the final totals."
+- *Then point at* `Combine input records=74488` → `Combine output records=10410`: "The combiner cut what goes over the network by 86%."
+- The top words are *you, your, from*: "MS MARCO is question-and-answer text."
+
+**Search `photosynthesis` (instant)**
+- *Point at* the status line, e.g. `scan 9 · score 1 · fetch 12 ms`: "Almost all the time is reading word lists from HBase. Scoring takes about 1 ms."
+- *Compare the three models:*
+  - BM25 puts *Photosynthesis* first.
+  - TF-IDF puts *Plant community* first: "it over-rewards short pages."
+  - Boolean gives every match a score of 1.0, in ID order: "Boolean can only say yes or no. It can't rank."
+
+**Search `river`, then tick PageRank (instant)**
+- *Without PageRank:* "List of rivers of New Zealand / Brazil / Alaska". "That's a pure text match, and lists repeat the word."
+- *With PageRank:* River, Water, China, Tributary, Mississippi River. "Pages that many others link to rise to the top."
+
+**`demo-live.sh hbase photosynthesis` (about 15 s; mostly the HBase shell starting)**
+- *While it runs:* "The word is stored as `photosynthesi`, because the stemmer cuts word endings. So 'photosynthetic' finds the same pages."
+- *Then point at* the rowkeys `photosynthesi#0000000101`, `…108`, `…218`, which are in order:
+  - "The rowkey is word#docID, kept sorted, so one word's whole list is one contiguous read."
+  - "The value is how many times the word appears: 7 times in document 101, *Biology*."
+
+**`demo-live.sh hive photosynthesis` (about 30 s)**
+- *While it runs:* "Hive turns this SQL into a Tez job on YARN. Most of the 20 s is start-up."
+- *Then point at* `photosynthesi | 157 | 258`: "157 articles contain it, 258 times in all. 157 is the same result count the search page showed."
+
+**`demo-live.sh pagerank` (instant)**
+- "Spark ran 10 iterations over 3.27 million links. Countries and big topics come out on top because everyone links to them."
+
+**`demo-live.sh clusters` (instant)**
+- "K-means sorted 210,000 articles into 20 groups using only their words: football, music, film, video games, politics, war, disease…"
+- Be upfront about cluster 8: "One cluster is just 2 near-empty pages. The other 19 are real topics."
+
+**`eval/results.md` + C5 chart**
+- "BM25 scored 0.198 on 1,000 real questions; the published Lucene baseline is 0.187. Our own MapReduce index and scorer reproduce the standard result."
+
+**For "why" questions:**
+- `project-explained.md` has the plain-English version of every step.
+- Report §4, *Key design choices*, gives a one-line reason for each design decision.
+- Plan §11 has 20 likely viva questions with answers.
+
 ## Part D: If something goes wrong
 
 | Problem | Do this |

@@ -10,7 +10,7 @@ import bda.common.Tokenizer;
 
 /**
  * Terminal version of the search page (plan WP10; the demo fallback).
- * Usage: java -cp bda-search-1.0.jar:$(hbase classpath) bda.serve.QueryCli [--model bm25|tfidf|boolean] [--pr] [--k 10] "query"
+ * Usage: java --add-opens java.base/java.nio=ALL-UNNAMED -cp bda-search-1.0.jar:$(hbase mapredcp):$HBASE_HOME/conf:$(hadoop classpath) bda.serve.QueryCli [--model bm25|tfidf|boolean] [--pr] [--k 10] "query"
  *        java -cp bda-search-1.0.jar bda.serve.QueryCli --tokenize "text"
  */
 public final class QueryCli {

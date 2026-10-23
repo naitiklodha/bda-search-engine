@@ -25,7 +25,7 @@ import bda.common.Scorer;
  *   GET /search?q=..&amp;model=bm25|tfidf|boolean&amp;pr=0|1&amp;k=10[&amp;k1=&amp;b=&amp;w=]   -> JSON
  * </pre>
  * Start detached (it must outlive the wsl.exe call):
- *   bda-run.sh queryserver java --add-opens java.base/java.nio=ALL-UNNAMED -cp bda-search-1.0.jar:$(hbase classpath) bda.serve.QueryServer --port 8090
+ *   bda-run.sh queryserver java --add-opens java.base/java.nio=ALL-UNNAMED -cp bda-search-1.0.jar:$(hbase mapredcp):$HBASE_HOME/conf:$(hadoop classpath) bda.serve.QueryServer --port 8090   (bin/demo-start.sh does this)
  */
 public final class QueryServer {
 
